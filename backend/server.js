@@ -86,7 +86,9 @@ app.post('/todos', async (req, res) => {
       due_date,
     } = req.body;
 
-    const result = await pool.query(
+    await pool.query('BEGIN');
+
+    const todoResult = await pool.query(
       `INSERT INTO todos
       (category_id, title, description, due_date)
       VALUES ($1, $2, $3, $4)
@@ -99,8 +101,20 @@ app.post('/todos', async (req, res) => {
       ]
     );
 
-    res.json(result.rows[0]);
+    const todo = todoResult.rows[0];
+
+    await pool.query(
+      `INSERT INTO todo_logs
+      (todo_id, action)
+      VALUES ($1, $2)`,
+      [todo.id, 'CREATE']
+    );
+
+    await pool.query('COMMIT');
+
+    res.json(todo);
   } catch (err) {
+    await pool.query('ROLLBACK');
     console.error(err);
     res.status(500).send('할 일 추가 실패');
   }
@@ -123,6 +137,20 @@ app.get('/todos', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).send('할 일 조회 실패');
+  }
+});
+
+/* 로그 조회 */
+app.get('/logs', async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT * FROM todo_logs ORDER BY id DESC'
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('로그 조회 실패');
   }
 });
 
@@ -152,13 +180,25 @@ app.delete('/todos/:id', async (req, res) => {
   try {
     const { id } = req.params;
 
+    await pool.query('BEGIN');
+
+    await pool.query(
+      `INSERT INTO todo_logs
+      (todo_id, action)
+      VALUES ($1, $2)`,
+      [id, 'DELETE']
+    );
+
     await pool.query(
       'DELETE FROM todos WHERE id = $1',
       [id]
     );
 
+    await pool.query('COMMIT');
+
     res.json({ message: '삭제 완료' });
   } catch (err) {
+    await pool.query('ROLLBACK');
     console.error(err);
     res.status(500).send('할 일 삭제 실패');
   }
